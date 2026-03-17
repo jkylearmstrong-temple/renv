@@ -284,3 +284,77 @@ test_that("bootstrap version validation handles 'standard' remote types", {
   )
 
 })
+
+test_that("version validation warnings are suppressed by RENV_CONFIG_STARTUP_QUIET", {
+
+  # https://github.com/rstudio/renv/issues/2214
+  renv_scope_options(renv.bootstrap.quiet = FALSE)
+  renv_scope_envvars(RENV_CONFIG_STARTUP_QUIET = "TRUE")
+
+  expect_silent(
+    renv_bootstrap_validate_version(
+      version = "1.2.3",
+      description = list(Version = "2.3.4")
+    )
+  )
+
+})
+
+test_that("version validation warnings are suppressed by RENV_CONFIG_SYNCHRONIZED_CHECK=FALSE", {
+
+  # https://github.com/rstudio/renv/issues/2214
+  renv_scope_options(renv.bootstrap.quiet = FALSE)
+  renv_scope_envvars(RENV_CONFIG_SYNCHRONIZED_CHECK = "FALSE")
+
+  expect_silent(
+    renv_bootstrap_validate_version(
+      version = "1.2.3",
+      description = list(Version = "2.3.4")
+    )
+  )
+
+})
+
+# repos override tests ----------------------------------------------------
+
+test_that("repos override supports unnamed repo", {
+  renv_tests_scope()
+  url <- "https://p3m.dev/cran/latest"
+  renv_scope_envvars(RENV_CONFIG_REPOS_OVERRIDE = url)
+  repos <- renv_bootstrap_repos()
+  expect_true(url %in% repos)
+})
+
+test_that("repos override can use 1 named repository", {
+  renv_tests_scope()
+  override <- "CRAN=https://p3m.dev/cran/latest"
+  renv_scope_envvars(RENV_CONFIG_REPOS_OVERRIDE = override)
+  repos <- renv_bootstrap_repos()
+  expect_equal(repos["CRAN"], c(CRAN = "https://p3m.dev/cran/latest"))
+})
+
+test_that("repos override can use 2+ named repositories", {
+  renv_tests_scope()
+  override <- "CRAN=https://p3m.dev/cran/latest;R_UNIV=https://posit-dev.r-universe.dev"
+  renv_scope_envvars(RENV_CONFIG_REPOS_OVERRIDE = override)
+  repos <- renv_bootstrap_repos()
+  expect_equal(repos["CRAN"], c(CRAN = "https://p3m.dev/cran/latest"))
+  expect_equal(repos["R_UNIV"], c(R_UNIV = "https://posit-dev.r-universe.dev"))
+  expect_equal(length(repos), 2L)
+})
+
+test_that("repos override can handle `=` in repo urls", {
+  renv_tests_scope()
+  override <- "R_UNIV=https://posit-dev.r-universe.dev/?example=query"
+  renv_scope_envvars(RENV_CONFIG_REPOS_OVERRIDE = override)
+  repos <- renv_bootstrap_repos()
+  expect_equal(repos["R_UNIV"], c(R_UNIV = "https://posit-dev.r-universe.dev/?example=query"))
+})
+
+test_that("repos override handle paths", {
+  renv_tests_scope()
+  override <- "CRAN=https://p3m.dev/cran/__linux__/noble/latest"
+  renv_scope_envvars(RENV_CONFIG_REPOS_OVERRIDE = override)
+  repos <- renv_bootstrap_repos()
+  expect_equal(repos["CRAN"], c(CRAN = "https://p3m.dev/cran/__linux__/noble/latest"))
+})

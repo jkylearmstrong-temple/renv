@@ -1,5 +1,110 @@
 
-# renv (development version)
+# renv (under development)
+
+* `renv::install()` and `renv::restore()` now download and install packages
+  in parallel. Package downloads are batched into a single `curl --parallel`
+  invocation, and source packages are compiled concurrently (up to
+  `install.jobs` workers, default 4) using ready-queue scheduling that
+  launches each package as soon as its dependencies finish. Binary packages
+  are installed up front since they require no build-time ordering.
+  Requires R >= 4.0 for full parallelism; older versions fall back to
+  sequential installation.
+
+* New function `renv::plan()` resolves the packages required by a project
+  and generates a lockfile, without installing any packages. This can be
+  used to preview what `renv::restore()` would install. Similarly,
+  `renv::checkout()` with `actions = "snapshot"` now writes the resolved
+  lockfile directly from repository metadata, rather than requiring
+  packages to be installed first. Both functions accept a `dependencies`
+  parameter (defaulting to `"strong"`) to control which dependency types
+  are included in the recursive dependency tree.
+
+* `renv::restore()` now consults the per-package `Repository` URL recorded
+  in the lockfile when resolving and downloading packages. Previously, only
+  the global repository list was used. The new `strict` parameter controls
+  whether packages with a URL-valued `Repository` field must be retrieved
+  from that exact repository (`strict = TRUE`) or merely prefer it
+  (`strict = FALSE`, the default).
+
+* Bootstrap failures during `.Rprofile` processing now emit a warning
+  instead of an error.
+
+* `renv::embed()` now warns when required packages are not found in the
+  resolved lockfile. Previously, dependencies missing from the project
+  lockfile were silently omitted from the generated `renv::use()` call.
+  (#2178)
+
+* `renv::embed()` gains support for `lockfile = NA`, which resolves
+  package versions from the active package repositories rather than
+  from installed packages or a lockfile. (#2178)
+
+* `renv::dependencies()` now detects packages referenced via
+  `system.file(..., package = "pkg")` calls. (#2236)
+
+* The `renv.bioconductor.version` option is now respected as a global
+  override during `renv::restore()` and `renv::load()`. Previously, the
+  Bioconductor version recorded in the lockfile would take precedence,
+  preventing users from overriding the Bioconductor version when needed.
+  (#2218)
+
+* renv now strips embedded credentials from repository URLs when writing
+  the lockfile. URLs of the form `https://user:token@host/path` are
+  sanitized to `https://host/path`, preventing accidental credential
+  leakage when sharing `renv.lock` files. (#2191)
+
+* The renv watchdog is now automatically disabled in child processes
+  launched by parallel frameworks (e.g. `future::multisession`,
+  `parallel::makePSOCKcluster()`, `callr`). (#2223)
+
+* `renv::use(repos = NULL)` now uses a cache-only install path, ensuring
+  packages are only installed from the renv cache and no external sources
+  (repositories, GitHub, etc.) are queried. Previously, `restore()` and
+  `install()` could still reach external sources through internal fallback
+  logic.
+
+* `renv::init(bioconductor = "devel")` now resolves symbolic Bioconductor
+  version names (e.g. `"devel"`, `"release"`) to their numeric equivalents
+  before writing to the lockfile. Previously, the literal string `"devel"`
+  was written, causing `renv::restore()` to fail. (#2170)
+
+* renv gains the configuration option `renv.config.crandb.enabled`. When
+  enabled, renv will query the [crandb](https://github.com/r-hub/crandb)
+  service to find the newest version of a package compatible with the current
+  version of R. This can be useful when using an older version of R, where
+  the latest version of a package on CRAN requires a newer R version.
+  (#1735)
+
+
+# renv 1.1.7
+
+* Fixed an issue where `.renvignore` files were not read when the project root
+  was the filesystem root `/`. (#2203)
+
+* Fixed an issue where `renv` would incorrectly warn about the version of
+  `renv` being used on project load. (#2207)
+
+* The renv version mismatch warning is now suppressed during bootstrap when
+  `RENV_CONFIG_STARTUP_QUIET=TRUE` or `RENV_CONFIG_SYNCHRONIZED_CHECK=FALSE`
+  is set. (#2214)
+
+* Fixed an issue where `RENV_CONFIG_REPOS_OVERRIDE` with multiple named
+  repositories (e.g., `NAME1=URL1;NAME2=URL2`) was not properly decoded by
+  the configuration system, causing functions like `renv::install()` and
+  `renv::restore()` to not use the specified repositories. (#2209)
+
+
+# renv 1.1.6
+
+* A new setting, `snapshot.dev`, has been added to control whether development
+  dependencies are included by default when calling `renv::snapshot()` or
+  `renv::status()`. This setting defaults to `FALSE`. (#2190)
+
+* `RENV_CONFIG_REPOS_OVERRIDE` now supports multiple named repositories using
+  the syntax `NAME1=URL1;NAME2=URL2`. Single repository URLs continue to be
+  supported.
+
+* Fixed an issue where `renv::sysreqs()` could fail on operating systems
+  which don't declare a VERSION_ID in `/etc/os-release`. (#2197)
 
 * `renv::dependencies()` now detects packages used in e.g.
   `data(<dataset>, package = <package>)`. (#2181)
@@ -1531,7 +1636,7 @@
   
 * `renv::snapshot()` gains the `reprex` argument. Set this to `TRUE` if you'd
   like to embed an renv lockfile as part of a reproducible example, as
-  generated by the [`reprex`](https://www.tidyverse.org/help/#reprex-pkg)
+  generated by the [`reprex`](https://tidyverse.org/help/#reprex-pkg)
   package.
   
 * `renv::status()` now reports packages that are referenced in a project's
@@ -1652,7 +1757,7 @@
   path. (#562)
 
 * `renv::snapshot()` no longer excludes the project itself, for `R` package
-  projects that use [golem](https://engineering-shiny.org/). (#538)
+  projects that use `golem`. (#538)
   
 * The renv configuration option `cache.symlinks` can now be used to control
   whether renv used symlinks into the cache, as opposed to full package

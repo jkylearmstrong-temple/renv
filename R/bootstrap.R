@@ -9,6 +9,16 @@ catf <- function(fmt, ..., appendLF = TRUE) {
   if (quiet)
     return(invisible())
 
+  # also check for config environment variables that should suppress messages
+  # https://github.com/rstudio/renv/issues/2214
+  enabled <- Sys.getenv("RENV_CONFIG_STARTUP_QUIET", unset = NA)
+  if (!is.na(enabled) && tolower(enabled) %in% c("true", "1"))
+    return(invisible())
+
+  enabled <- Sys.getenv("RENV_CONFIG_SYNCHRONIZED_CHECK", unset = NA)
+  if (!is.na(enabled) && tolower(enabled) %in% c("false", "0"))
+    return(invisible())
+
   msg <- sprintf(fmt, ...)
   cat(msg, file = stdout(), sep = if (appendLF) "\n" else "")
 
@@ -56,13 +66,17 @@ bootstrap <- function(version, library) {
   section <- header(sprintf("Bootstrapping renv %s", friendly))
   catf(section)
 
+  # ensure the target library path exists; required for file.copy(..., recursive = TRUE)
+  dir.create(library, showWarnings = FALSE, recursive = TRUE)
+
   # try to install renv from cache
   md5 <- attr(version, "md5", exact = TRUE)
   if (length(md5)) {
     pkgpath <- renv_bootstrap_find(version)
     if (length(pkgpath) && file.exists(pkgpath)) {
-      file.copy(pkgpath, library, recursive = TRUE)
-      return(invisible())
+      ok <- file.copy(pkgpath, library, recursive = TRUE)
+      if (isTRUE(ok))
+        return(invisible())
     }
   }
 
@@ -107,12 +121,20 @@ renv_bootstrap_repos <- function() {
   repos <- Sys.getenv("RENV_CONFIG_REPOS_OVERRIDE", unset = NA)
   if (!is.na(repos)) {
 
-    # check for RSPM; if set, use a fallback repository for renv
-    rspm <- Sys.getenv("RSPM", unset = NA)
-    if (identical(rspm, repos))
-      repos <- c(RSPM = rspm, CRAN = cran)
+    # split on ';' if present
+    parts <- strsplit(repos, ";", fixed = TRUE)[[1L]]
 
-    return(repos)
+    # split into named repositories if present
+    idx <- regexpr("=", parts, fixed = TRUE)
+    keys <- substring(parts, 1L, idx - 1L)
+    vals <- substring(parts, idx + 1L)
+    names(vals) <- keys
+
+    # if we have a single unnamed repository, call it CRAN
+    if (length(vals) == 1L && identical(keys, ""))
+      names(vals) <- "CRAN"
+
+    return(vals)
 
   }
 
@@ -379,6 +401,12 @@ renv_bootstrap_find_cache <- function(version) {
 
   # infer path to renv cache
   cache <- Sys.getenv("RENV_PATHS_CACHE", unset = "")
+  if (!nzchar(cache)) {
+    root <- Sys.getenv("RENV_PATHS_ROOT", unset = NA)
+    if (!is.na(root))
+      cache <- file.path(root, "cache")
+  }
+
   if (!nzchar(cache)) {
     tools <- asNamespace("tools")
     if (is.function(tools$R_user_dir)) {
@@ -868,7 +896,7 @@ renv_bootstrap_validate_version_dev <- function(version, description) {
 
 renv_bootstrap_validate_version_release <- function(version, description) {
   expected <- description[["Version"]]
-  is.character(expected) && identical(expected, version)
+  is.character(expected) && identical(c(expected), c(version))
 }
 
 renv_bootstrap_hash_text <- function(text) {
@@ -1047,6 +1075,21 @@ renv_bootstrap_exec <- function(project, libpath, version) {
 }
 
 renv_bootstrap_run <- function(project, libpath, version) {
+  tryCatch(
+    renv_bootstrap_run_impl(project, libpath, version),
+    error = function(e) {
+      msg <- paste(
+        "failed to bootstrap renv: the project will not be loaded.",
+        paste("Reason:", conditionMessage(e)),
+        "Use `renv::activate()` to re-initialize the project.",
+        sep = "\n"
+      )
+      warning(msg, call. = FALSE)
+    }
+  )
+}
+
+renv_bootstrap_run_impl <- function(project, libpath, version) {
 
   # perform bootstrap
   bootstrap(version, libpath)

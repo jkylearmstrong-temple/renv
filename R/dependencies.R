@@ -585,7 +585,7 @@ renv_dependencies_discover_description <- function(path,
   fields <- fields %||% renv_dependencies_discover_description_fields(path, project)
 
   # make sure dependency fields are expanded
-  fields <- renv_description_dependency_fields_expand(fields)
+  fields <- renv_dependencies_fields(fields)
 
   data <- map(
     fields,
@@ -1117,6 +1117,7 @@ renv_dependencies_discover_r <- function(path  = NULL,
     renv_dependencies_discover_r_require_namespace,
     renv_dependencies_discover_r_colon,
     renv_dependencies_discover_r_citation,
+    renv_dependencies_discover_r_system_file,
     renv_dependencies_discover_r_data,
     renv_dependencies_discover_r_pacman,
     renv_dependencies_discover_r_modules,
@@ -1304,6 +1305,25 @@ renv_dependencies_discover_r_citation <- function(node, envir) {
 
 }
 
+renv_dependencies_discover_r_system_file <- function(node, envir) {
+
+  node <- renv_call_expect(node, "base", "system.file")
+  if (is.null(node))
+    return(FALSE)
+
+  matched <- catch(match.call(base::system.file, node))
+  if (inherits(matched, "error"))
+    return(FALSE)
+
+  package <- matched[["package"]]
+  if (!is.character(package) || length(package) != 1L)
+    return(FALSE)
+
+  envir[[package]] <- TRUE
+  TRUE
+
+}
+
 renv_dependencies_discover_r_data <- function(node, envir) {
 
   node <- renv_call_expect(node, "utils", "data")
@@ -1442,7 +1462,8 @@ renv_dependencies_discover_r_import <- function(node, envir) {
   if (inherits(matched, "error"))
     return(FALSE)
 
-  # the '.from' argument is the package name, either a character vector of length one or a symbol
+  # the '.from' argument is the package name
+  # either a character vector of length one or a symbol
   from <- matched$.from
   if (is.symbol(from)) {
     co <- node[[".character_only"]]
@@ -1455,9 +1476,11 @@ renv_dependencies_discover_r_import <- function(node, envir) {
     return(FALSE)
 
   # '.from' can also be an R script; if it appears to be a path, then ignore it
+  # this is unfortunately problematic for some packages like 'treesitter.r'
+  #
   # https://github.com/rstudio/renv/issues/1743
-  if (grepl("\\.[rR]$", from, perl = TRUE) &&
-      grepl("[/\\]", from))
+  # https://github.com/rstudio/renv/issues/2212
+  if (grepl("\\.[rR]$", from, perl = TRUE))
     return(FALSE)
 
   envir[[from]] <- TRUE
@@ -1610,7 +1633,7 @@ renv_dependencies_discover_r_ggplot2 <- function(node, envir) {
   if (!is.character(filename))
     return(FALSE)
 
-  if (!endswith(filename, ".svg"))
+  if (!endsWith(filename, ".svg"))
     return(FALSE)
 
   envir[["svglite"]] <- TRUE
@@ -2072,4 +2095,34 @@ renv_dependencies_recurse_impl <- function(object, callback) {
   for (i in seq_along(object))
     if (is.call(object[[i]]))
       renv_dependencies_recurse_impl(object[[i]], callback)
+}
+
+renv_dependencies_fields <- function(fields = NULL, project = NULL) {
+
+  fields <- fields %||% settings$package.dependency.fields(project = project)
+
+  expanded <- map(fields, function(field) {
+
+    case(
+
+      identical(field, FALSE)
+        ~ NULL,
+
+      identical(field, "strong") || is.na(field)
+        ~ c("Depends", "Imports", "LinkingTo"),
+
+      identical(field, "most") || identical(field, TRUE)
+        ~ c("Depends", "Imports", "LinkingTo", "Suggests"),
+
+      identical(field, "all")
+        ~ c("Depends", "Imports", "LinkingTo", "Suggests", "Enhances"),
+
+      field
+
+    )
+
+  })
+
+  unique(unlist(expanded, recursive = FALSE, use.names = FALSE))
+
 }
